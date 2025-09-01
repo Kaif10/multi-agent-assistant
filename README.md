@@ -50,24 +50,51 @@ pip install -r requirements.txt
 
 ## 🔧 Environment
 
-Copy `.env.example` → `.env` and fill in your own keys:
+Copy `.env.example` → `.env` and fill in your own keys.
+
+### Example `.env.example`
 
 ```ini
+# ===============================
+# Multi-Agent Assistant Example .env
+# ===============================
+
+# --- OpenAI ---
+# Your OpenAI API key (from https://platform.openai.com/account/api-keys)
 OPENAI_API_KEY=your-openai-key
+# Default model used for intent classification & summarization
 OPENAI_MODEL=gpt-4o-mini
 
-# Gmail OAuth
-GOOGLE_CREDENTIALS_PATH=credentials.json   # see note below
+# --- Gmail OAuth ---
+# Path to your Google OAuth Desktop client JSON
+# When you download it, Google names it something like:
+#   client_secret_xxxxx.apps.googleusercontent.com.json
+# Option A: rename it to credentials.json and put it in repo root
+# Option B: keep original name and update this path accordingly
+GOOGLE_CREDENTIALS_PATH=credentials.json
+
+# Optional default account email (used if you omit --account)
+# Leave blank for public use; each user should set their own
 DEFAULT_ACCOUNT_EMAIL=
 
-# Calendly
-CALENDLY_TOKEN=your-calendly-pat
+# --- Calendly ---
+# Personal Access Token (PAT) from https://calendly.com/integrations/api_webhooks
+# For now we use PAT; in production you'd switch to OAuth per user
+CALENDLY_TOKEN=
+
+# Local timezone for interpreting "yesterday", "Monday afternoon", etc.
 LOCAL_TZ=Europe/London
 
-# Safe mode
+# --- Router / Safety ---
+# DRY_RUN=1 means emails are simulated (not actually sent)
+# DRY_RUN=0 means real emails are sent via Gmail API
 DRY_RUN=1
+
+# Directory for saving attachments (from Gmail read)
 DOWNLOAD_DIR=downloads
 ```
+
+---
 
 ### 📌 Important — Google `credentials.json`
 
@@ -82,9 +109,27 @@ You have two options:
 1. Rename it to `credentials.json` and place it in the repo root.
 2. Keep the weird name, but update `.env`:
 
-   ```
+   ```ini
    GOOGLE_CREDENTIALS_PATH=client_secret_1234567890-abc123def.apps.googleusercontent.com.json
    ```
+
+### Example `credentials.example.json`
+
+```json
+{
+  "installed": {
+    "client_id": "YOUR_CLIENT_ID.apps.googleusercontent.com",
+    "project_id": "your-project-id",
+    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+    "client_secret": "YOUR_CLIENT_SECRET",
+    "redirect_uris": ["http://localhost"]
+  }
+}
+```
+
+> ⚠️ Do **not** commit your real `credentials.json` or `token.json`. Only keep them locally.
 
 First run will trigger OAuth in the browser; a token is cached under `tokens/`.
 
@@ -155,19 +200,21 @@ voice_router.py       # Voice interface
 self_test.py          # Health check / eval script
 requirements.txt
 .env.example
+credentials.example.json
 .gitignore
 ```
 
 ---
 
-## 🔒 Notes for Public Use
+## 🔒 Security Notes
 
 * Never commit `.env`, `credentials.json`, `token.json`, or `tokens/`.
-* This repo already has `.gitignore` configured to protect those.
-* Rotate credentials if you accidentally expose them.
+* This repo’s `.gitignore` already covers those.
+* If secrets were accidentally committed, revoke them immediately in Google Cloud / Calendly and generate new ones.
 
 ---
 
 ## 📜 License
 
 MIT 
+
