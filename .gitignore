@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pkl
+*.so
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+env/
+venv/
+
+# IDE/editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# OAuth tokens / secrets
+tokens/
+*.json
+!credentials.example.json   # commit only an example stub, not real creds
+
+# Gmail downloads
+downloads/
+
+# Logs
+*.log
+logs/
