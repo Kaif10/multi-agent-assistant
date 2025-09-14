@@ -1,7 +1,11 @@
-#!/usr/bin/env python3
+
 """
 Gmail SEND (multi-user). Uses the same token store as agent_gmail_read.py.
-Scope: gmail.modify
+
+Scope: gmail.modify (by design)
+- We intentionally request gmail.modify so one consent covers both read and send
+  flows across the app. For stricter least-privilege you can split to separate
+  credentials/flows using gmail.readonly and gmail.send.
 
 send_email(
     to: list[str] | str,
@@ -81,6 +85,10 @@ def send_email(
     account_email: Optional[str] = None,
     in_reply_to_message_id: Optional[str] = None
 ) -> dict:
+    # Respect DRY_RUN for safe testing environments
+    if os.getenv("DRY_RUN", "0").lower() in {"1", "true", "yes", "on"}:
+        return {"id": "dry-run", "threadId": None}
+
     creds, acct = get_credentials(account_email)
     svc = _gmail_service(creds)
 
@@ -94,11 +102,19 @@ def send_email(
 
     thread_id = None
     if in_reply_to_message_id:
-        # Fetch original to stitch thread + set headers
-        orig = svc.users().messages().get(userId="me", id=in_reply_to_message_id, format="metadata", metadataHeaders=["Message-Id"]).execute()
+        # Fetch original to stitch thread + set headers (preserve chain)
+        orig = svc.users().messages().get(
+            userId="me",
+            id=in_reply_to_message_id,
+            format="metadata",
+            metadataHeaders=["Message-Id", "References"],
+        ).execute()
         hdrs = {h["name"].lower(): h["value"] for h in orig.get("payload", {}).get("headers", [])}
-        msg["In-Reply-To"] = hdrs.get("message-id", f"<{in_reply_to_message_id}@mail.google.com>")
-        msg["References"] = msg["In-Reply-To"]
+        orig_mid = hdrs.get("message-id")
+        orig_refs = hdrs.get("references")
+        if orig_mid:
+            msg["In-Reply-To"] = orig_mid
+            msg["References"] = f"{orig_refs} {orig_mid}".strip() if orig_refs else orig_mid
         thread_id = orig.get("threadId")
 
     raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")

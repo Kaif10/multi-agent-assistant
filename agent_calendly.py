@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """
 Calendly helper (multi-user capable).
 
@@ -11,7 +11,7 @@ Convenience:
     list_events_on(date_str="2025-08-30", window="afternoon", account_key=None)
 
 New:
-    create_scheduling_link(account_key=None, event_type=None, max_count=1, owner_type="users")
+    create_scheduling_link(account_key=None, event_type=None, max_count=1, owner_type="EventType")
       -> {"url": "<booking url>", ...}
 
 Notes:
@@ -107,8 +107,6 @@ def list_events_on(date_str: str, window: str = "day", tz: str = "UTC", account_
 
 # ---- Scheduling links --------------------------------------------------
 
-# ---- Scheduling links --------------------------------------------------
-
 async def _pick_event_type_uri(ac: httpx.AsyncClient, user_uri: str, preferred_uri: Optional[str]) -> str:
     """
     Return an Event Type URI to use for scheduling links.
@@ -162,7 +160,7 @@ async def create_scheduling_link_async(
 
         payload = {
             "owner": et_uri,
-            "owner_type": "EventType",   # <-- critical fix
+            "owner_type": owner_type,
             "max_event_count": max_count,
         }
 
@@ -190,7 +188,6 @@ def create_scheduling_link(
 ) -> Dict[str, Any]:
     import anyio
     return anyio.run(create_scheduling_link_async, account_key, event_type, max_count, owner_type)
-
 
 
 

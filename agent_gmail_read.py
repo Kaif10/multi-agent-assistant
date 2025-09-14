@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """
 Gmail (multi-user) helpers + optional CLI.
 
@@ -8,6 +8,11 @@ Gmail (multi-user) helpers + optional CLI.
     list_recent_compact(max_results=25, account_email=None)
     search_emails(query, max_results=25, account_email=None)
     get_email(message_id, download_attachments=False, account_email=None)
+
+Scope: gmail.modify (by design)
+- We intentionally request gmail.modify so one consent covers both read and send
+  in this app. For strict least-privilege, split flows into gmail.readonly and
+  gmail.send with separate credentials.
 
 If run as a script, you can call these from the CLI, e.g.:
     python agent_gmail_read.py list --account you@example.com --max 20
@@ -36,6 +41,15 @@ DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "downloads")
 
 pathlib.Path(TOKENS_DIR).mkdir(parents=True, exist_ok=True)
 pathlib.Path(DOWNLOAD_DIR).mkdir(parents=True, exist_ok=True)
+
+def _safe_filename(name: str, default: str = "attachment.bin") -> str:
+    name = (name or default).strip()
+    # remove path separators and control chars
+    name = re.sub(r"[\\/\r\n\t]+", "_", name)
+    # keep a conservative charset
+    name = re.sub(r"[^A-Za-z0-9._+-]", "_", name)
+    # clamp length
+    return name[:200] or default
 
 def _token_path_for(email_addr: str) -> str:
     slug = re.sub(r'[^a-zA-Z0-9_.+-]+', '_', email_addr.strip())
@@ -143,11 +157,11 @@ def search_emails(query: str, max_results: int = 25, account_email: Optional[str
         headers = _extract_headers(payload)
         out.append({
             "id": m["id"],
-            "threadId": m.get("threadId"),
+            "threadId": m.get("threadId"), 
             "internalDate": m.get("internalDate"),
             "snippet": m.get("snippet", ""),
             **headers,
-        })
+        }) 
     return out
 
 def _decode_body(part: Dict[str, Any]) -> bytes:
@@ -190,7 +204,7 @@ def get_email(message_id: str, download_attachments: bool = False, account_email
             if download_attachments:
                 dest_dir = os.path.join(DOWNLOAD_DIR, acct, message_id)
                 os.makedirs(dest_dir, exist_ok=True)
-                dest = os.path.join(dest_dir, filename or "attachment.bin")
+                dest = os.path.join(dest_dir, _safe_filename(filename))
                 with open(dest, "wb") as f:
                     f.write(data)
                 att_meta["saved_to"] = dest

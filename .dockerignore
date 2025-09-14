@@ -1,0 +1,16 @@
+.git
+.github
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+dist
+build
+downloads
+tokens
+.env
+*.log
+logs
+credentials.json
+token.json

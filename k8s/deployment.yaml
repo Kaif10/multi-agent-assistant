@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-api
+  labels:
+    app: agent-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent-api
+  template:
+    metadata:
+      labels:
+        app: agent-api
+    spec:
+      containers:
+        - name: agent-api
+          image: ghcr.io/OWNER/REPO:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: agent-secrets
+                  key: OPENAI_API_KEY
+            - name: CALENDLY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: agent-secrets
+                  key: CALENDLY_TOKEN
+            - name: GOOGLE_CREDENTIALS_PATH
+              value: /app/credentials/credentials.json
+            - name: GOOGLE_TOKENS_DIR
+              value: /app/tokens
+            - name: DOWNLOAD_DIR
+              value: /app/downloads
+            - name: DEFAULT_ACCOUNT_EMAIL
+              valueFrom:
+                configMapKeyRef:
+                  name: agent-config
+                  key: DEFAULT_ACCOUNT_EMAIL
+          volumeMounts:
+            - name: tokens
+              mountPath: /app/tokens
+              readOnly: true
+            - name: credentials
+              mountPath: /app/credentials
+              readOnly: true
+      volumes:
+        - name: tokens
+          secret:
+            secretName: agent-gmail-tokens
+        - name: credentials
+          secret:
+            secretName: agent-google-credentials
+
