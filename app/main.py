@@ -1,6 +1,18 @@
 from __future__ import annotations
+
 import os
+import sys
+import logging
+from pathlib import Path
 from typing import List, Optional
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Ensure project root imports resolve when running via Streamlit
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import RedirectResponse, Response, FileResponse
@@ -8,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import agent_gmail_read as gmail_read
-import agent_email_send as gmail_send
+import agent_email_send as gmail_send_service
 import agent_calendly as cal
 import agent_router as router
 
@@ -62,6 +74,7 @@ class RouteRequest(BaseModel):
 
 app = FastAPI(title="Agent API", version="0.1.0")
 
+logger = logging.getLogger(__name__)
 
 @app.get("/")
 def root():
@@ -99,6 +112,7 @@ def gmail_list(req: GmailListRequest):
             account_email=req.account_email,
         )
     except Exception as e:
+        logger.exception("Endpoint failure", exc_info=e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -111,6 +125,7 @@ def gmail_search(req: GmailSearchRequest):
             account_email=req.account_email,
         )
     except Exception as e:
+        logger.exception("Endpoint failure", exc_info=e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -123,13 +138,14 @@ def gmail_get(req: GmailGetRequest):
             account_email=req.account_email,
         )
     except Exception as e:
+        logger.exception("Endpoint failure", exc_info=e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/gmail/send")
-def gmail_send(req: GmailSendRequest):
+def gmail_send_email(req: GmailSendRequest):
     try:
-        return gmail_send.send_email(
+        return gmail_send_service.send_email(
             to=req.to,
             subject=req.subject,
             body_text=req.body_text,
@@ -139,6 +155,7 @@ def gmail_send(req: GmailSendRequest):
             in_reply_to_message_id=req.in_reply_to_message_id,
         )
     except Exception as e:
+        logger.exception("Endpoint failure", exc_info=e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -147,6 +164,7 @@ def calendly_events(req: CalendlyEventsRequest):
     try:
         return cal.list_events_on(req.date, window=req.window, tz=req.tz, account_key=req.account_key)
     except Exception as e:
+        logger.exception("Endpoint failure", exc_info=e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -160,13 +178,19 @@ def calendly_link(req: CalendlyLinkRequest):
             owner_type=req.owner_type,
         )
     except Exception as e:
+        logger.exception("Endpoint failure", exc_info=e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/route")
 def route_nl(req: RouteRequest):
     try:
-        reply = router.handle(req.text, account_email=req.account_email, calendly_key=req.calendly_key)
-        return {"reply": reply}
+        result = router.handle_structured(req.text, account_email=req.account_email, calendly_key=req.calendly_key)
+        return {"ok": True, "query": req.text, **result}
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.exception("Router failed", exc_info=e)
         raise HTTPException(status_code=500, detail=str(e))
+
+

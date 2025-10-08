@@ -18,7 +18,7 @@ send_email(
 ) -> dict
 """
 from __future__ import annotations
-import os, sys, base64, json, re
+import os, sys, base64, json, logging, re
 from typing import List, Optional, Tuple
 from email.message import EmailMessage
 from dotenv import load_dotenv
@@ -26,13 +26,17 @@ load_dotenv()
 
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
+from google.auth.exceptions import RefreshError
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 GOOGLE_CREDENTIALS_PATH = os.getenv("GOOGLE_CREDENTIALS_PATH", "credentials.json")
 TOKENS_DIR = os.getenv("GOOGLE_TOKENS_DIR", "tokens")
 DEFAULT_ACCOUNT_EMAIL = os.getenv("DEFAULT_ACCOUNT_EMAIL")
+
+logger = logging.getLogger(__name__)
 
 def _token_path_for(email_addr: str) -> str:
     slug = re.sub(r'[^a-zA-Z0-9_.+-]+', '_', email_addr.strip())
@@ -59,25 +63,38 @@ def _interactive_login(token_path: str) -> Credentials:
     return creds
 
 def get_credentials(account_email: Optional[str] = None) -> Tuple[Credentials, str]:
+    def _ensure_valid(creds_in: Credentials, token_path: str) -> Credentials:
+        if creds_in and creds_in.expired and creds_in.refresh_token:
+            try:
+                creds_in.refresh(Request())
+                _save_credentials(creds_in, token_path)
+            except RefreshError:
+                creds_in = None
+        if not creds_in or not creds_in.valid:
+            creds_in = _interactive_login(token_path)
+        return creds_in
+
     if account_email:
         token_path = _token_path_for(account_email)
         creds = _load_credentials(token_path)
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request()); _save_credentials(creds, token_path)
-        if not creds or not creds.valid:
-            creds = _interactive_login(token_path)
+        creds = _ensure_valid(creds, token_path)
         return creds, account_email
     if DEFAULT_ACCOUNT_EMAIL:
         return get_credentials(DEFAULT_ACCOUNT_EMAIL)
     raise RuntimeError("No account_email provided and DEFAULT_ACCOUNT_EMAIL is not set.")
 
+
 def _gmail_service(creds: Credentials):
     return build("gmail", "v1", credentials=creds, cache_discovery=False)
 
 def _as_list(x) -> List[str]:
-    if not x: return []
-    if isinstance(x, str): return [x]
-    return list(x)
+    if not x:
+        return []
+    if isinstance(x, str):
+        items = [part.strip() for part in re.split(r'[;,]+', x) if part.strip()]
+    else:
+        items = [str(part).strip() for part in x if str(part).strip()]
+    return items
 
 def send_email(
     to, subject: str, body_text: str,
@@ -85,24 +102,31 @@ def send_email(
     account_email: Optional[str] = None,
     in_reply_to_message_id: Optional[str] = None
 ) -> dict:
-    # Respect DRY_RUN for safe testing environments
+    recipients = _as_list(to)
+    if not recipients:
+        raise ValueError("At least one recipient is required")
+    cc_list = _as_list(cc)
+    bcc_list = _as_list(bcc)
+
     if os.getenv("DRY_RUN", "0").lower() in {"1", "true", "yes", "on"}:
+        logger.info("DRY_RUN enabled; skipping send to %s", ', '.join(recipients))
         return {"id": "dry-run", "threadId": None}
 
     creds, acct = get_credentials(account_email)
     svc = _gmail_service(creds)
+    logger.debug("Sending Gmail message as %s to %s", acct, ', '.join(recipients))
 
-    # Build the RFC822 message
     msg = EmailMessage()
-    msg["To"] = ", ".join(_as_list(to))
-    if cc: msg["Cc"] = ", ".join(_as_list(cc))
-    if bcc: msg["Bcc"] = ", ".join(_as_list(bcc))
+    msg["To"] = ", ".join(recipients)
+    if cc_list:
+        msg["Cc"] = ", ".join(cc_list)
+    if bcc_list:
+        msg["Bcc"] = ", ".join(bcc_list)
     msg["Subject"] = subject or ""
     msg.set_content(body_text or "")
 
     thread_id = None
     if in_reply_to_message_id:
-        # Fetch original to stitch thread + set headers (preserve chain)
         orig = svc.users().messages().get(
             userId="me",
             id=in_reply_to_message_id,
@@ -122,7 +146,11 @@ def send_email(
     if thread_id:
         body["threadId"] = thread_id
 
-    sent = svc.users().messages().send(userId="me", body=body).execute()
+    try:
+        sent = svc.users().messages().send(userId="me", body=body).execute()
+    except HttpError as exc:
+        logger.exception("Failed to send Gmail message to %s", ', '.join(recipients), exc_info=exc)
+        raise
     return {"id": sent.get("id"), "threadId": sent.get("threadId")}
 
 # ------------- CLI ----------------

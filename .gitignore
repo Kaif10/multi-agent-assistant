@@ -27,7 +27,10 @@ venv/
 
 # OAuth tokens / secrets
 tokens/
-*.json
+credentials.json
+token.json
+*client_secret*.json
+oauth-client-*.json
 !credentials.example.json   # commit only an example stub, not real creds
 
 # Gmail downloads

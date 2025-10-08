@@ -1,125 +1,42 @@
-<!doctype html>
+﻿<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Agent Console</title>
-    <link rel="icon" href="/favicon.ico" />
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
-    <header class="header">
-      <div class="container row between center">
-        <h1 class="logo">Agent Console</h1>
-        <nav class="tabs" role="tablist">
-          <button class="tab active" data-tab="router">Router</button>
-          <button class="tab" data-tab="gmail">Gmail</button>
-          <button class="tab" data-tab="calendly">Calendly</button>
-        </nav>
-      </div>
-    </header>
+    <main class="shell">
+      <header class="hero">
+        <h1>Agent Console</h1>
+        <p>Ask in natural language. The router will decide whether to read Gmail, send an email, or pull Calendly data for you.</p>
+      </header>
 
-    <main class="container">
-      <section id="router" class="panel active">
-        <h2>Natural-Language Router</h2>
-        <div class="grid2">
-          <div class="card">
-            <label>Request</label>
-            <textarea id="routerText" rows="6" placeholder="e.g., summarize my important emails from yesterday"></textarea>
-            <div class="row gap">
-              <input id="routerEmail" class="input" placeholder="account_email (optional)" />
-              <input id="routerCalKey" class="input" placeholder="calendly_key (optional)" />
-            </div>
-            <div class="row between center">
-              <div class="hint">Uses OpenAI + your local agents</div>
-              <button id="runRouter" class="btn primary">Run</button>
-            </div>
-          </div>
-          <div class="card output">
-            <label>Output</label>
-            <pre id="routerOut" class="pre">Ready.</pre>
-          </div>
+      <form id="query-form" class="query-card">
+        <label for="query" class="sr-only">Request</label>
+        <textarea id="query" name="query" rows="4" placeholder="e.g. Summarise yesterday's important Gmail threads or send Leo an email confirming the meeting"></textarea>
+        <div class="form-foot">
+          <button type="submit" id="submit-btn">Run</button>
+          <span class="status" id="status" aria-live="polite"></span>
         </div>
-      </section>
+      </form>
 
-      <section id="gmail" class="panel">
-        <h2>Gmail</h2>
-        <div class="grid2">
-          <div class="card">
-            <h3>List Recent</h3>
-            <div class="row gap">
-              <input id="listEmail" class="input" placeholder="account_email" />
-              <input id="listMax" class="input" type="number" value="10" min="1" max="100" />
-            </div>
-            <button id="btnList" class="btn">List</button>
-
-            <h3>Search</h3>
-            <input id="searchQuery" class="input" placeholder="query e.g., subject:invoice" />
-            <div class="row gap">
-              <input id="searchEmail" class="input" placeholder="account_email" />
-              <input id="searchMax" class="input" type="number" value="10" min="1" max="100" />
-            </div>
-            <button id="btnSearch" class="btn">Search</button>
-
-            <h3>Send Email</h3>
-            <input id="sendTo" class="input" placeholder="to (comma separated)" />
-            <input id="sendSubject" class="input" placeholder="subject" />
-            <textarea id="sendBody" rows="5" placeholder="body"></textarea>
-            <input id="sendEmailAcct" class="input" placeholder="account_email" />
-            <div class="row between center">
-              <div class="hint">DRY_RUN is controlled by server env</div>
-              <button id="btnSend" class="btn primary">Send</button>
-            </div>
-          </div>
-          <div class="card output">
-            <label>Results</label>
-            <div id="gmailList" class="list"></div>
-            <pre id="gmailOut" class="pre"></pre>
-          </div>
-        </div>
-      </section>
-
-      <section id="calendly" class="panel">
-        <h2>Calendly</h2>
-        <div class="grid2">
-          <div class="card">
-            <h3>List Events</h3>
-            <div class="row gap">
-              <input id="calDate" class="input" type="date" />
-              <select id="calWindow" class="input">
-                <option>day</option>
-                <option>morning</option>
-                <option>afternoon</option>
-                <option>evening</option>
-              </select>
-            </div>
-            <div class="row gap">
-              <input id="calTZ" class="input" placeholder="tz (e.g., Europe/London)" />
-              <input id="calKey" class="input" placeholder="account_key (optional)" />
-            </div>
-            <button id="btnCalList" class="btn">Fetch Events</button>
-
-            <h3>Create Scheduling Link</h3>
-            <div class="row gap">
-              <input id="calKeyLink" class="input" placeholder="account_key (optional)" />
-              <input id="calOwnerType" class="input" placeholder="owner_type (EventType)" value="EventType" />
-            </div>
-            <button id="btnCalLink" class="btn primary">Create Link</button>
-          </div>
-          <div class="card output">
-            <label>Results</label>
-            <pre id="calOut" class="pre"></pre>
-          </div>
-        </div>
-      </section>
+      <section id="responses" class="responses" aria-live="polite"></section>
     </main>
 
-    <footer class="footer container">
-      <div>Built with FastAPI • OpenAI • Gmail • Calendly</div>
-      <div class="muted">Tip: API docs at <a href="/docs">/docs</a></div>
-    </footer>
+    <template id="response-template">
+      <article class="response">
+        <h2 class="response-title"></h2>
+        <p class="response-intent"></p>
+        <pre class="response-text"></pre>
+        <details class="response-details">
+          <summary>Details</summary>
+          <pre></pre>
+        </details>
+      </article>
+    </template>
 
-    <script src="/static/app.js"></script>
+    <script type="module" src="/static/app.js"></script>
   </body>
-  </html>
-
+</html>

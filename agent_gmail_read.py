@@ -20,7 +20,7 @@ If run as a script, you can call these from the CLI, e.g.:
     python agent_gmail_read.py get 18c1a1a0a2f... --download --account you@example.com
 """
 from __future__ import annotations
-import os, sys, json, base64, pathlib, datetime as dt, email, re
+import os, sys, json, logging, base64, pathlib, datetime as dt, email, re
 from typing import Dict, Any, List, Optional, Tuple
 
 from dotenv import load_dotenv
@@ -29,8 +29,10 @@ load_dotenv()
 # ---- Google API setup -------------------------------------------------------
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
+from google.auth.exceptions import RefreshError
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 
@@ -41,6 +43,8 @@ DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "downloads")
 
 pathlib.Path(TOKENS_DIR).mkdir(parents=True, exist_ok=True)
 pathlib.Path(DOWNLOAD_DIR).mkdir(parents=True, exist_ok=True)
+
+logger = logging.getLogger(__name__)
 
 def _safe_filename(name: str, default: str = "attachment.bin") -> str:
     name = (name or default).strip()
@@ -82,34 +86,38 @@ def get_credentials(account_email: Optional[str] = None) -> Tuple[Credentials, s
     If account_email is None, uses DEFAULT_ACCOUNT_EMAIL if present; otherwise will
     attempt to use the first token found in TOKENS_DIR.
     """
+    def _ensure_valid(creds_in: Credentials, token_path: str) -> Credentials:
+        if creds_in and creds_in.expired and creds_in.refresh_token:
+            try:
+                creds_in.refresh(Request())
+                _save_credentials(creds_in, token_path)
+            except RefreshError:
+                creds_in = None
+        if not creds_in or not creds_in.valid:
+            creds_in = _interactive_login(token_path)
+        return creds_in
+
     if account_email:
         token_path = _token_path_for(account_email)
         creds = _load_credentials(token_path)
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            _save_credentials(creds, token_path)
-        if not creds or not creds.valid:
-            creds = _interactive_login(token_path)
+        creds = _ensure_valid(creds, token_path)
         actual_email = account_email
     else:
-        # Try default
         if DEFAULT_ACCOUNT_EMAIL:
             return get_credentials(DEFAULT_ACCOUNT_EMAIL)
-        # Or any token in the folder
         candidates = [p for p in os.listdir(TOKENS_DIR) if p.startswith("gmail-") and p.endswith(".json")]
         if not candidates:
-            # Force interactive login to create first token
             em = input("No tokens found. Enter email to authenticate: ").strip()
             return get_credentials(em)
         token_path = os.path.join(TOKENS_DIR, sorted(candidates)[0])
         creds = _load_credentials(token_path)
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            _save_credentials(creds, token_path)
+        creds = _ensure_valid(creds, token_path)
         actual_email = re.sub(r'^gmail-|\.json$', '', os.path.basename(token_path))
+
     if not creds or not creds.valid:
         raise RuntimeError("Failed to obtain valid Google credentials.")
     return creds, actual_email
+
 
 def _gmail_service(creds: Credentials):
     # cache_discovery=False avoids disk writes that can fail in some environments
@@ -126,43 +134,53 @@ def _extract_headers(payload: Dict[str, Any]) -> Dict[str, str]:
         "message-id": headers.get("message-id", ""),
     }
 
-def list_recent_compact(max_results: int = 25, account_email: Optional[str] = None) -> List[Dict[str, Any]]:
-    creds, acct = get_credentials(account_email)
-    svc = _gmail_service(creds)
-    res = svc.users().messages().list(userId="me", labelIds=["INBOX"], maxResults=max_results).execute()
-    ids = [m["id"] for m in res.get("messages", [])]
-    out: List[Dict[str, Any]] = []
-    for mid in ids:
-        m = svc.users().messages().get(userId="me", id=mid, format="metadata", metadataHeaders=["From","To","Cc","Date","Subject","Message-Id"]).execute()
-        payload = m.get("payload", {})
+def _fetch_messages_metadata(svc, message_ids: List[str]) -> List[Dict[str, Any]]:
+    """Return lightweight metadata for the provided Gmail message ids."""
+    if not message_ids:
+        return []
+    metadata_headers = ["From", "To", "Cc", "Date", "Subject", "Message-Id"]
+    records: List[Dict[str, Any]] = []
+    for mid in message_ids:
+        try:
+            msg = svc.users().messages().get(
+                userId="me",
+                id=mid,
+                format="metadata",
+                metadataHeaders=metadata_headers,
+            ).execute()
+        except HttpError as exc:
+            logger.exception("Failed to fetch metadata for message %s", mid, exc_info=exc)
+            continue
+        payload = msg.get("payload", {})
         headers = _extract_headers(payload)
-        out.append({
-            "id": m["id"],
-            "threadId": m.get("threadId"),
-            "internalDate": m.get("internalDate"),
-            "snippet": m.get("snippet", ""),
+        records.append({
+            "id": msg.get("id"),
+            "threadId": msg.get("threadId"),
+            "internalDate": msg.get("internalDate"),
+            "snippet": msg.get("snippet", ""),
             **headers,
         })
-    return out
+    return records
 
-def search_emails(query: str, max_results: int = 25, account_email: Optional[str] = None) -> List[Dict[str, Any]]:
+def list_recent_compact(max_results: int = 25, account_email: Optional[str] = None) -> List[Dict[str, Any]]:
+    if max_results <= 0:
+        raise ValueError("max_results must be positive")
     creds, acct = get_credentials(account_email)
     svc = _gmail_service(creds)
+    logger.debug("Listing up to %s recent Gmail messages for %s", max_results, acct)
+    res = svc.users().messages().list(userId="me", labelIds=["INBOX"], maxResults=max_results).execute()
+    ids = [m['id'] for m in res.get('messages', [])]
+    return _fetch_messages_metadata(svc, ids)
+
+def search_emails(query: str, max_results: int = 25, account_email: Optional[str] = None) -> List[Dict[str, Any]]:
+    if max_results <= 0:
+        raise ValueError("max_results must be positive")
+    creds, acct = get_credentials(account_email)
+    svc = _gmail_service(creds)
+    logger.debug("Searching Gmail for %r (max %s) on %s", query, max_results, acct)
     res = svc.users().messages().list(userId="me", q=query, maxResults=max_results).execute()
     ids = [m["id"] for m in res.get("messages", [])]
-    out: List[Dict[str, Any]] = []
-    for mid in ids:
-        m = svc.users().messages().get(userId="me", id=mid, format="metadata", metadataHeaders=["From","To","Cc","Date","Subject","Message-Id"]).execute()
-        payload = m.get("payload", {})
-        headers = _extract_headers(payload)
-        out.append({
-            "id": m["id"],
-            "threadId": m.get("threadId"), 
-            "internalDate": m.get("internalDate"),
-            "snippet": m.get("snippet", ""),
-            **headers,
-        }) 
-    return out
+    return _fetch_messages_metadata(svc, ids)
 
 def _decode_body(part: Dict[str, Any]) -> bytes:
     body = part.get("body", {})
@@ -183,7 +201,12 @@ def _walk_parts(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
 def get_email(message_id: str, download_attachments: bool = False, account_email: Optional[str] = None) -> Dict[str, Any]:
     creds, acct = get_credentials(account_email)
     svc = _gmail_service(creds)
-    m = svc.users().messages().get(userId="me", id=message_id, format="full").execute()
+    logger.debug("Downloading Gmail message %s for %s (attachments=%s)", message_id, acct, download_attachments)
+    try:
+        m = svc.users().messages().get(userId="me", id=message_id, format="full").execute()
+    except HttpError as exc:
+        logger.exception("Failed to fetch Gmail message %s", message_id, exc_info=exc)
+        raise
     payload = m.get("payload", {})
     headers = _extract_headers(payload)
 
@@ -208,6 +231,7 @@ def get_email(message_id: str, download_attachments: bool = False, account_email
                 with open(dest, "wb") as f:
                     f.write(data)
                 att_meta["saved_to"] = dest
+                logger.debug("Saved attachment %s to %s", filename, dest)
             attachments.append(att_meta)
         else:
             data = _decode_body(p)
