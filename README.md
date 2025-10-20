@@ -2,6 +2,8 @@
 
 Natural‑language agent that can fetch/summarize Gmail, send email, and create Calendly scheduling links. It exposes a FastAPI service with a tiny web UI and a router that turns plain text into actions.
 
+(Demo preview)[https://github.com/Kaif10/multi-agent-assistant/blob/main/email.png]
+
 
 ## Features
 - Gmail read (search, list compact, fetch bodies/attachments)
